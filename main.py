@@ -1,44 +1,13 @@
 #!/usr/bin/env python3
 #
 # =============================================================================
-#  Project      : CISO Convert - PSP Compatible
-#  Description  : Compress ISO To CSO and Decompress CSO To ISO [9 level].
+#  Project      : CISO Converter
+#  Description  : Compress ISO to CSO and decompress CSO to ISO (PSP compatible, 9 levels)
 #  Author       : Raffaele Catapano
 #  License      : MIT (see LICENSE)
 #  Created on   : 23/06/2025
 #  Updated on   : 10/11/2026
 #  Version      : 2.1 - PySide6 Dark Theme
-#
-#  Changelog 2.1
-#    - FIX: scrittura sicura: l'output viene scritto in "<file>.part" e rinominato
-#           solo a operazione riuscita; annullamento o errore non distruggono piu'
-#           un file di output preesistente confermato come "da sovrascrivere"
-#    - FIX: allineamento dell'indice scelto in base alla dimensione (0 per le ISO
-#           PSP sotto i 2 GiB, come i tool classici) invece del valore fisso 2:
-#           massima compatibilita' e nessun byte di padding inutile
-#    - FIX: validazione dell'input tramite firma: ISO9660 ("CD001"), CISO, ZISO.
-#           CSO/ZSO in compressione e file non-CSO in decompressione vengono
-#           bloccati; un file senza firma ISO9660 richiede conferma
-#    - FIX: la finestra non supera piu' l'altezza dello schermo (prima il layout
-#           richiedeva almeno 910 px): dimensione iniziale limitata allo schermo
-#           disponibile, altezza minima ridotta e contenuto scorrevole
-#    - Percorsi di input e output azzerati a fine operazione riuscita
-#    - Migrazione da PyQt6 a PySide6 (LGPL) e rilascio con licenza MIT
-#
-#  Changelog 2.0
-#    - Nuova interfaccia grafica (tema scuro, icona SVG generata nel codice)
-#    - FIX: la decompressione falliva sui blocchi compressi ("incorrect data check")
-#    - FIX: ultimo blocco troncato alla dimensione reale dell'ISO in decompressione
-#    - FIX: fine dei dati allineata prima dell'ultimo indice (l'ultimo blocco
-#           compresso poteva perdere 1-3 byte e risultare illeggibile)
-#    - FIX: input e output non possono piu' coincidere (il sorgente veniva azzerato)
-#    - FIX: Stop non mostra piu' "Conversion failed" e rimuove il file parziale
-#    - FIX: file parziale rimosso anche in caso di errore
-#    - FIX: segnali di progresso emessi solo quando la percentuale cambia
-#    - FIX: statistica "Average compression" non include piu' header e indice
-#    - FIX: errore anticipato se l'output supererebbe il limite del formato (8 GiB)
-#    - Conferma prima di sovrascrivere, controlli bloccati durante l'operazione,
-#      conferma alla chiusura durante una conversione, messaggi finali per modalita'
 #
 #  Copyright (c) 2025-2026 Raffaele Catapano
 #  Released under the MIT License - see the LICENSE file for details.
@@ -62,7 +31,7 @@ import zlib
 from pathlib import Path
 
 # -----------------------------------------------------------------------------
-#  Dati applicazione (unico punto da modificare ad ogni release)
+#  Application data (the only place to edit at each release)
 # -----------------------------------------------------------------------------
 APP_NAME = "CISO Converter"
 APP_VERSION = "2.1"
@@ -70,14 +39,14 @@ APP_AUTHOR = "Raffaele Catapano"
 APP_YEARS = "2025-2026"
 APP_ID = f"raffaelecatapano.cisoconvert.{APP_VERSION}"
 
-CSO_BLOCK_SIZE = 2048          # settore ISO9660 / UMD PSP
-CSO_ALIGN_MAX = 2              # shift massimo: indice in unita' da 4 byte (fino a 8 GiB)
-CSO_PLAIN_FLAG = 0x80000000    # bit 31 dell'indice: blocco non compresso
+CSO_BLOCK_SIZE = 2048          # ISO9660 / PSP UMD sector
+CSO_ALIGN_MAX = 2              # maximum shift: index in 4-byte units (up to 8 GiB)
+CSO_PLAIN_FLAG = 0x80000000    # index bit 31: uncompressed block
 CSO_MAX_INDEX = 0x7FFFFFFF
 
 
 def same_path(a, b):
-    """True se i due percorsi puntano allo stesso file"""
+    """True if the two paths point to the same file"""
     try:
         if os.path.exists(a) and os.path.exists(b):
             return os.path.samefile(a, b)
@@ -87,13 +56,13 @@ def same_path(a, b):
 
 
 def part_path(output_file):
-    """File temporaneo in cui viene scritto l'output prima del rename finale"""
+    """Temporary file the output is written to before the final rename"""
     return output_file + ".part"
 
 
 def choose_align(total_blocks, block_size):
-    """Shift minimo dell'indice che permette di indirizzare anche il caso peggiore
-    (tutti i blocchi non compressi). Per le ISO PSP (< 2 GiB) risulta 0."""
+    """Smallest index shift that can address even the worst case
+    (all blocks uncompressed). For PSP ISOs (< 2 GiB) it is 0."""
     data_start = 24 + 4 * (total_blocks + 1)
     for align in range(CSO_ALIGN_MAX + 1):
         step = 1 << align
@@ -104,7 +73,7 @@ def choose_align(total_blocks, block_size):
 
 
 def detect_input_kind(path):
-    """Riconosce il file dalla firma: 'cso' | 'zso' | 'iso' (ISO9660) | 'unknown'"""
+    """Identify the file by its signature: 'cso' | 'zso' | 'iso' (ISO9660) | 'unknown'"""
     try:
         with open(path, 'rb') as f:
             head = f.read(4)
@@ -121,7 +90,7 @@ def detect_input_kind(path):
 
 
 def deflate_raw(data, level):
-    """Deflate grezzo (wbits=-15): il formato richiesto dai blocchi CSO"""
+    """Raw deflate (wbits=-15): the format required by CSO blocks"""
     comp = zlib.compressobj(level, zlib.DEFLATED, -15)
     return comp.compress(data) + comp.flush()
 
@@ -170,7 +139,7 @@ class CISOHeader:
 
 
 class CISOConverter:
-    """Main CISO converter class - PSP Compatible (un'istanza per operazione)"""
+    """Main CISO converter class - PSP Compatible (one instance per operation)"""
 
     def __init__(self, progress_callback=None, log_callback=None):
         self.progress_callback = progress_callback
@@ -188,7 +157,7 @@ class CISOConverter:
             print(message)
 
     def update_progress(self, value):
-        """Update progress (emesso solo se la percentuale cambia)"""
+        """Update progress (emitted only when the percentage changes)"""
         if value != self._last_progress:
             self._last_progress = value
             if self.progress_callback:
@@ -199,7 +168,7 @@ class CISOConverter:
         self.stop_requested = True
 
     def _remove_partial(self):
-        """Rimuove il file temporaneo incompleto: l'output finale non viene mai toccato"""
+        """Remove the incomplete temporary file: the final output is never touched"""
         if not self._tmp_path:
             return
         try:
@@ -211,7 +180,7 @@ class CISOConverter:
         self._tmp_path = None
 
     # ------------------------------------------------------------------
-    #  Compressione ISO -> CSO
+    #  ISO -> CSO compression
     # ------------------------------------------------------------------
     def compress_iso(self, input_file, output_file, compression_level=6):
         """Compress ISO to CSO - PSP Compatible"""
@@ -359,7 +328,7 @@ class CISOConverter:
             fout.seek(index_pos)
             fout.write(struct.pack(f'<{total_blocks + 1}I', *index_buf))
 
-        # Operazione riuscita: il file temporaneo sostituisce l'output in un colpo solo
+        # Success: the temporary file replaces the output in one step
         os.replace(tmp_file, output_file)
         self._tmp_path = None
 
@@ -374,7 +343,7 @@ class CISOConverter:
         return True
 
     # ------------------------------------------------------------------
-    #  Decompressione CSO -> ISO
+    #  CSO -> ISO decompression
     # ------------------------------------------------------------------
     def decompress_cso(self, input_file, output_file):
         """Decompress CSO to ISO - PSP Compatible"""
@@ -496,7 +465,7 @@ class CISOConverter:
                     fout.write(output_data[:expected])
                     written += expected
 
-        # Operazione riuscita: il file temporaneo sostituisce l'output in un colpo solo
+        # Success: the temporary file replaces the output in one step
         os.replace(tmp_file, output_file)
         self._tmp_path = None
 
@@ -559,11 +528,11 @@ class ConversionThread(QThread):
 
 
 # =============================================================================
-#  GRAFICA - icona SVG generata automaticamente + tema scuro moderno
+#  GRAPHICS - SVG icon generated in the code + modern dark theme
 # =============================================================================
 
-# Icona dell'app: disco (ISO) con due frecce che lo "comprimono" da entrambi i lati.
-# E' disegnata direttamente nel codice, quindi non servono file esterni.
+# App icon: a disc (ISO) with two arrows "compressing" it from both sides.
+# It is drawn directly in the code, so no external files are needed.
 APP_ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -590,7 +559,7 @@ APP_ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
 
 
 def svg_pixmap(size):
-    """Renderizza l'icona SVG in una QPixmap della dimensione richiesta"""
+    """Render the SVG icon into a QPixmap of the requested size"""
     renderer = QSvgRenderer(QByteArray(APP_ICON_SVG.encode("utf-8")))
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -603,7 +572,7 @@ def svg_pixmap(size):
 
 
 def build_app_icon():
-    """Crea una QIcon multi-risoluzione (finestra, taskbar, Alt+Tab)"""
+    """Create a multi-resolution QIcon (window, taskbar, Alt+Tab)"""
     icon = QIcon()
     for size in (16, 24, 32, 48, 64, 128, 256):
         icon.addPixmap(svg_pixmap(size))
@@ -905,16 +874,16 @@ class CISOApp(QMainWindow):
         self.apply_dark_theme()
 
     def fit_to_screen(self):
-        """Dimensione iniziale che non supera lo schermo disponibile (taskbar esclusa)"""
+        """Initial size that does not exceed the available screen (taskbar excluded)"""
         screen = self.screen() or QApplication.primaryScreen()
         avail = screen.availableGeometry()
         self.resize(min(680, avail.width() - 40), min(940, avail.height() - 80))
 
     # ------------------------------------------------------------------
-    #  Helpers grafici
+    #  UI helpers
     # ------------------------------------------------------------------
     def _make_card(self, title, right_widget=None):
-        """Crea un 'card' con titolo e restituisce (frame, layout del contenuto)"""
+        """Create a 'card' with a title and return (frame, content layout)"""
         card = QFrame()
         card.setObjectName("card")
         layout = QVBoxLayout(card)
@@ -937,7 +906,7 @@ class CISOApp(QMainWindow):
         central_widget = QWidget()
         central_widget.setObjectName("root")
 
-        # Il contenuto scorre se lo schermo e' troppo basso, invece di venire tagliato
+        # The content scrolls if the screen is too short, instead of being cut off
         scroll = QScrollArea()
         scroll.setObjectName("scroll")
         scroll.setWidgetResizable(True)
@@ -1124,7 +1093,7 @@ class CISOApp(QMainWindow):
         self.setStyleSheet(STYLESHEET)
 
     def on_mode_change(self):
-        """Handle mode change (lo slider e' attivo solo in compressione e a riposo)"""
+        """Handle mode change (the slider is active only when compressing and idle)"""
         enabled = self.compress_radio.isChecked() and not self.processing
         self.level_slider.setEnabled(enabled)
         self.level_label.setEnabled(enabled)
@@ -1132,7 +1101,7 @@ class CISOApp(QMainWindow):
             hint.setEnabled(enabled)
 
     def set_controls_enabled(self, enabled):
-        """Blocca/sblocca i controlli di configurazione durante la conversione"""
+        """Lock/unlock the configuration controls during a conversion"""
         for widget in (self.compress_radio, self.decompress_radio,
                        self.input_edit, self.output_edit,
                        self.input_button, self.output_button):
@@ -1178,7 +1147,7 @@ class CISOApp(QMainWindow):
             self.output_edit.setText(filename)
 
     def log_message(self, message):
-        """Add message to log (colorato in base al tipo di messaggio)"""
+        """Add message to log (colored by message type)"""
         low = message.lower()
         if "error" in low or "failed" in low or "invalid" in low:
             color = "#ff6b6b"
@@ -1225,7 +1194,7 @@ class CISOApp(QMainWindow):
             )
             return
 
-        # Validazione del tipo di file tramite firma
+        # File type validation by signature
         kind = detect_input_kind(input_file)
         if self.compress_radio.isChecked():
             if kind in ("cso", "zso"):
@@ -1312,7 +1281,7 @@ class CISOApp(QMainWindow):
             else:
                 text = "Decompression completed successfully!\n\nThe ISO file has been restored."
             QMessageBox.information(self, "Success", text)
-            # Pronto per una nuova operazione: svuota i path di input e output
+            # Ready for a new operation: clear the input and output paths
             self.input_edit.clear()
             self.output_edit.clear()
         elif status == "cancelled":
@@ -1329,7 +1298,7 @@ class CISOApp(QMainWindow):
             )
 
     def closeEvent(self, event):
-        """Chiusura sicura: ferma il thread se una conversione e' in corso"""
+        """Safe close: stop the thread if a conversion is running"""
         if self.processing and self.conversion_thread:
             reply = QMessageBox.question(
                 self, "Conversion in progress",
@@ -1348,7 +1317,7 @@ class CISOApp(QMainWindow):
 
 def main():
     """Main function"""
-    # Windows: serve un AppUserModelID per mostrare l'icona corretta nella taskbar
+    # Windows: an AppUserModelID is needed to show the correct icon in the taskbar
     if sys.platform == "win32":
         try:
             import ctypes

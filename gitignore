@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+*.part
+*.iso
+*.cso
+*.zso

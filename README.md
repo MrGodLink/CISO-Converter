@@ -59,6 +59,17 @@ standard deflate stream, so any decoder reads it the same way regardless of leve
 Use this tool only with disc images you are legally entitled to have. Do not add game
 images (ISO/CSO/ZSO) to the repository.
 
+## Credits
+
+Created by **Raffaele Catapano** - [github.com/MrGodLink](https://github.com/MrGodLink)
+
+If you reuse, modify or redistribute this project, please keep the copyright notice and
+credit the original author, as required by the MIT License.
+
+### Other projects by the author
+
+- [RcFux](https://github.com/MrGodLink/RuFux) - graphical utility (PySide6) to create bootable USB drives on Linux.
+
 ## License
 
 The source code is released under the [MIT License](LICENSE).
